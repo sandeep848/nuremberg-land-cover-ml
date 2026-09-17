@@ -1,128 +1,126 @@
-## Nuremberg Land-Cover Intelligence
+# Nuremberg Land-Cover Intelligence
 
-This project predicts and analyzes land-cover composition over a 100m grid for Nuremberg, then serves interactive area-based insights in a Streamlit app.
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](https://www.python.org/)
+[![LightGBM](https://img.shields.io/badge/Model-LightGBM-2C7A7B.svg)](https://lightgbm.readthedocs.io/)
+[![Streamlit](https://img.shields.io/badge/App-Streamlit-FF4B4B.svg)](https://streamlit.io/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Main classes:
-- Built-up
-- Vegetation
-- Water
-- Other
+A tabular geospatial machine-learning pipeline for estimating land-cover composition and change across Nuremberg on a 100 m grid. It combines Sentinel-2 surface reflectance, spectral indices and ESA WorldCover supervision with spatial cross-validation and an interactive analysis application.
 
-## Quick Start
+## What it predicts
 
-If processed predictions and population files already exist, run only these commands:
+For every grid cell and year from 2019 to 2023, the pipeline estimates the proportion of:
 
-```bash
+- built-up area
+- vegetation
+- water
+- other land cover
+
+It also derives year-to-year changes and uncertainty summaries.
+
+## Validation
+
+Five spatial folds were used to reduce overly optimistic scores caused by geographic autocorrelation.
+
+| Built-up proportion metric | Cross-validation result |
+|---|---:|
+| MAE | **0.0489 ± 0.0029** |
+| RMSE | **0.0979 ± 0.0050** |
+| R² | **0.9146 ± 0.0091** |
+
+## Pipeline
+
+~~~mermaid
+flowchart TD
+    A["Sentinel-2 composites"] --> C["100 m grid features"]
+    B["ESA WorldCover labels"] --> D["Training table"]
+    C --> D
+    D --> E["Spatial CV and LightGBM"]
+    E --> F["Yearly composition"]
+    F --> G["Change and uncertainty"]
+    G --> H["Streamlit application"]
+~~~
+
+## Features
+
+- Sentinel-2 B2, B3, B4 and B8 reflectance
+- NDVI and NDWI
+- 100 m grid in EPSG:25832
+- LightGBM ensemble with Ridge baseline
+- Spatial cross-validation and Optuna tuning
+- Interactive AOI selection using rectangles or polygons
+- Composition, change, confidence and population views
+- Cell-level temporal inspection and CSV/PDF export
+
+## Quick start
+
+~~~bash
+git clone https://github.com/sandeep848/ML_Project.git
+cd ML_Project
 python -m venv .venv
-.venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 streamlit run app/streamlit_app.py
-```
+~~~
 
-Then open the local Streamlit URL shown in terminal (usually `http://localhost:8501`).
+On Windows, activate with `.venv\Scripts\activate`.
 
-If predictions are missing, run the pipeline in the **Data Preparation and Training Pipeline** section first.
+Processed predictions are required for the application. When they are unavailable, run the preparation pipeline below.
 
-## Repository Layout
+## Training pipeline
 
-- `src/`: data pipeline, feature extraction, training, prediction, and evaluation scripts
-- `data/raw/`: raw Sentinel and WorldCover inputs
-- `data/processed/`: grid, features, labels, tables, predictions, and population by year
-- `models/`: trained model artifacts and validation summaries
-- `app/streamlit_app.py`: interactive application
+~~~bash
+python src/make_grid.py \
+  --raster data/raw/sentinel/S2_2020_Jun01_Aug31_10m_QA60SCL_F32.tif \
+  --cell-size 100 \
+  --output data/processed/grid/grid_100m.gpkg
 
-## Environment Setup
+python src/build_training_table.py \
+  --grid data/processed/grid/grid_100m.gpkg \
+  --features-dir data/processed/features \
+  --labels-dir data/processed/labels \
+  --years 2020 2021 \
+  --output data/processed/tables/train_table.parquet
 
-### Option 1: pip + venv (recommended)
+python src/train_models.py \
+  --train data/processed/tables/train_table.parquet \
+  --outdir models \
+  --spatial-folds 5 \
+  --optuna-trials 30 \
+  --ensemble-size 5
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-```
+python src/predict_all_years.py \
+  --features-dir data/processed/features \
+  --years 2019 2020 2021 2022 2023 \
+  --model-dir models \
+  --output-dir data/processed/predictions \
+  --include-uncertainty
+~~~
 
-### Option 2: conda geospatial baseline
+Use `src/extract_features.py` for each yearly Sentinel composite and `src/extract_labels.py` for the 2020 and 2021 WorldCover rasters before building the training table.
 
-```bash
-conda install -c conda-forge geopandas rasterio shapely pyproj fiona
-```
+## Repository structure
 
-## Data Preparation and Training Pipeline
+~~~text
+src/                    # Grid, feature, label, training and prediction scripts
+app/streamlit_app.py    # Interactive application
+data/raw/               # Source rasters
+data/processed/         # Derived tables and predictions
+models/                 # Models and validation summaries
+config.yaml             # Project configuration
+~~~
 
-### 1) Build 100m grid
+## Data and reproducibility
 
-```bash
-python src/make_grid.py --raster data/raw/sentinel/S2_2020_Jun01_Aug31_10m_QA60SCL_F32.tif --cell-size 100 --block-size 1000 --output data/processed/grid/grid_100m.gpkg
-```
+Raw Sentinel-2 and WorldCover data are not redistributed by this project. Generated model and geospatial artifacts currently included in the repository are intended to make the demonstrated analysis reproducible; larger artifacts should eventually move to a versioned release or external data registry.
 
-### 2) Extract yearly Sentinel features
+## Limitations
 
-```bash
-python src/extract_features.py --raster data/raw/sentinel/S2_2019_Jun01_Aug31_10m_QA60SCL_F32.tif --grid data/processed/grid/grid_100m.gpkg --output data/processed/features/features_2019.parquet --year 2019
-python src/extract_features.py --raster data/raw/sentinel/S2_2020_Jun01_Aug31_10m_QA60SCL_F32.tif --grid data/processed/grid/grid_100m.gpkg --output data/processed/features/features_2020.parquet --year 2020
-python src/extract_features.py --raster data/raw/sentinel/S2_2021_Jun01_Aug31_10m_QA60SCL_F32.tif --grid data/processed/grid/grid_100m.gpkg --output data/processed/features/features_2021.parquet --year 2021
-python src/extract_features.py --raster data/raw/sentinel/S2_2022_Jun01_Aug31_10m_QA60SCL_F32.tif --grid data/processed/grid/grid_100m.gpkg --output data/processed/features/features_2022.parquet --year 2022
-python src/extract_features.py --raster data/raw/sentinel/S2_2023_Jun01_Aug31_10m_QA60SCL_F32.tif --grid data/processed/grid/grid_100m.gpkg --output data/processed/features/features_2023.parquet --year 2023
-```
+- WorldCover provides supervision for 2020 and 2021, so estimates outside those years rely on temporal transfer.
+- Predictions describe grid-cell composition rather than individual 10 m pixels.
+- Spatial cross-validation reduces, but does not eliminate, geographic dependence.
+- Population overlays provide context and are not used as causal evidence of land-cover change.
 
-### 3) Extract labels from WorldCover
+## License
 
-```bash
-python src/extract_labels.py --raster data/raw/worldcover/WorldCover_2020_10m.tif --grid data/processed/grid/grid_100m.gpkg --output data/processed/labels/labels_2020.parquet --year 2020
-python src/extract_labels.py --raster data/raw/worldcover/WorldCover_2021_10m.tif --grid data/processed/grid/grid_100m.gpkg --output data/processed/labels/labels_2021.parquet --year 2021
-```
-
-### 4) Build training table
-
-```bash
-python src/build_training_table.py --grid data/processed/grid/grid_100m.gpkg --features-dir data/processed/features --labels-dir data/processed/labels --years 2020 2021 --output data/processed/tables/train_table.parquet
-```
-
-### 5) Train models
-
-```bash
-python src/train_models.py --train data/processed/tables/train_table.parquet --outdir models --spatial-folds 5 --optuna-trials 30 --ensemble-size 5
-```
-
-### 6) Predict all years
-
-```bash
-python src/predict_all_years.py --features-dir data/processed/features --years 2019 2020 2021 2022 2023 --model-dir models --output-dir data/processed/predictions --include-uncertainty
-```
-
-## Run the App
-
-```bash
-streamlit run app/streamlit_app.py
-```
-
-## Current App Capabilities
-
-- Draw polygon/rectangle area of interest on the map
-- Composition mode: class shares for a selected year
-- Change mode: start/end comparison with class-wise deltas
-- Proportional map fill and dominant-class map fill
-- Selection narrative cards for composition and change
-- Model reliability context metrics
-- What-if simulator in change mode with calibrated scenario density estimate
-- Population context summary in change mode under reliability section
-- Export options:
-	- Selection report (CSV)
-	- Executive summary (PDF)
-
-## Required Data for App
-
-- Grid: `data/processed/grid/grid_100m.gpkg`
-- Predictions: `data/processed/predictions/pred_YYYY.parquet`
-- Population: `data/processed/population/pop_YYYY_by_cell_id.csv`
-- Model summaries (for reliability context):
-	- `models/metrics_spatial_cv_summary.csv`
-	- `models/uncertainty_summary.csv`
-
-## Notes
-
-- If map selection does not register, clear polygon and redraw a closed shape.
-- For smooth rendering, very large AOIs may automatically switch to dominant-class rendering.
-
-
-
+Distributed under the [MIT License](LICENSE).
