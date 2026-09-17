@@ -55,8 +55,8 @@ flowchart TD
 ## Quick start
 
 ~~~bash
-git clone https://github.com/sandeep848/ML_Project.git
-cd ML_Project
+git clone https://github.com/sandeep848/nuremberg-land-cover-ml.git
+cd nuremberg-land-cover-ml
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
